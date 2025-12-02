@@ -56,7 +56,7 @@ public:
     bool is_colliding(double x, double y) {
         int ix = (int)x;
         int iy = (int)y;
-        if(ix < 0  iy < 0  ix >= side  iy >= side) return true;
+        if(ix < 0 || iy < 0 || ix >= side || iy >= side) return true;
         if(grid[ix][iy] == 1) return true;
         return false;
     }
@@ -97,25 +97,12 @@ public:
         return distance(s, goal) < goal_threshold;
     }
 
-    // توليد neighbors مع primitives صغيرة لكل Motion
     std::vector<std::pair<State, Motion>> get_valid_neigh(const State& current) {
         std::vector<std::pair<State, Motion>> valid;
         for(auto& m : car.motions) {
-            State temp = current;
-            bool valid_motion = true;
-            int steps = 5;            // عدد خطوات صغيرة داخل dt
-            double dt_small = dt / steps;
-
-            for(int i=0; i<steps; i++) {
-                temp = car.next_state(temp, m, dt_small);
-                if(env.is_colliding(temp.x, temp.y)) {
-                    valid_motion = false;
-                    break;
-                }
-            }
-
-            if(valid_motion)
-                valid.push_back({temp, m}); // نضيف نهاية الحركة بعد primitives
+            State next = car.next_state(current, m, dt);
+            if(!env.is_colliding(next.x, next.y))
+                valid.push_back({next, m});
         }
         return valid;
     }
@@ -134,24 +121,22 @@ public:
             for(auto& [next, motion] : get_valid_neigh(current.s)) {
                 auto key = std::make_pair((int)next.x,(int)next.y);
                 double new_cost = g[{(int)current.s.x,(int)current.s.y}] + distance(current.s,next);
-                if(g.find(key) == g.end()  new_cost < g[key]) {
+                if(g.find(key) == g.end() || new_cost < g[key]) {
                     g[key] = new_cost;
                     parent[key] = current.s;
-
-Abrar Elnawi, [11/30/2025 11:38 AM]
-double f = new_cost + heuristic(next);
+                    double f = new_cost + heuristic(next);
                     OPEN.push({next, f});
                 }
             }
         }
 
-        // استخراج المسار خطوة بخطوة
+        // استخراج المسار
         std::vector<State> path;
         State s = goal;
         while(distance(s, start) > 0.001) {
             path.push_back(s);
             auto it = parent.find({(int)s.x,(int)s.y});
-            if(it == parent.end()) break;
+            if(it == parent.end()) break; // إذا لم يوجد
             s = it->second;
         }
         path.push_back(start);
@@ -168,12 +153,10 @@ int main() {
     Astar planner(start, goal);
     std::vector<State> path = planner.search();
 
-    std::cout << "Detailed Path found:\n";
-    int step = 0;
-    for(auto& s : path) {
-        std::cout << "Step " << step++ << ": (" << s.x << "," << s.y << ")\n";
-    }
+    std::cout << "Path found:\n";
+    for(auto& s : path)
+        std::cout << "(" << s.x << "," << s.y << ") -> ";
+    std::cout << "Goal\n";
 
     return 0;
 }
-
