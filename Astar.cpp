@@ -2,7 +2,7 @@
 using namespace std;
 
 // ========================= Utility ============================
-double PI = 3.141592653589793;
+double PI = 3.14;
 double deg2rad(double d){ return d * PI / 180.0; }
 double rad2deg(double r){ return r * 180.0 / PI; }
 
