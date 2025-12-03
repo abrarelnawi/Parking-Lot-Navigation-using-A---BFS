@@ -1,162 +1,189 @@
-#include <iostream>
-#include <vector>
-#include <queue>
-#include <map>
-#include <cmath>
-#include <algorithm>
+#include <bits/stdc++.h>
+using namespace std;
 
-// ----------------- Vehicle / Ackerman Steering -----------------
-struct State {
-    double x, y, theta;
-};
+// ========================= Utility ============================
+double PI = 3.141592653589793;
+double deg2rad(double d){ return d * PI / 180.0; }
+double rad2deg(double r){ return r * 180.0 / PI; }
 
-struct Motion {
-    double v;      // السرعة
-    double delta;  // زاوية التوجيه
-};
+double normalizeDeg(float d){
+    d = fmod(d, 360.0);
+    if(d < 0) d += 360.0;
+    return d;
+}
 
-class AckermanSteering {
+// ========================= State Class ============================
+class State {
 public:
-    double length, width, wheel_base;
-    std::vector<Motion> motions;
+    int x, y;       // position as integer
+    float theta;    // orientation as float (degrees)
 
-    AckermanSteering(double l = 19.0, double w = 9.5, double wb = 0.6122) {
-        length = l;
-        width = w;
-        wheel_base = wb;
-        motions.push_back({1.0, 0.0});   // مستقيم
-        motions.push_back({1.0, 0.2});   // دوران صغير
-        motions.push_back({1.0, -0.2});
+    State(int _x=0, int _y=0, float _t=0.0){
+        x = _x; y = _y; theta = normalizeDeg(_t);
     }
 
-    State next_state(const State& current, const Motion& m, double dt) {
-        State next;
-        next.x = current.x + m.v * cos(current.theta) * dt;
-        next.y = current.y + m.v * sin(current.theta) * dt;
-        next.theta = current.theta + (m.v / wheel_base) * tan(m.delta) * dt;
-        return next;
+    bool operator==(State const& s) const {
+        return (x == s.x && y == s.y && fabs(theta - s.theta) < 0.01);
     }
 };
 
-// ----------------- Environment -----------------
+// Needed for unordered_map key
+struct StateHash {
+    size_t operator()(State const& s) const {
+        long long X = s.x;
+        long long Y = s.y;
+        long long T = (long long)(s.theta*100); // precision for theta
+        return X*73856093 ^ Y*19349663 ^ T*83492791;
+    }
+};
+
+// ========================= Environment Class ============================
 class Environment {
 public:
-    int side;
-    std::vector<std::vector<int>> grid; // 0 = فارغ, 1 = عائق
+    int W, H;
+    vector<vector<int>> grid;
 
-    Environment(int s = 100) {
-        side = s;
-        grid.resize(side, std::vector<int>(side, 0));
-        // مثال: بعض العقبات
-        for(int i=40; i<60; ++i)
-            for(int j=40; j<60; ++j)
-                grid[i][j] = 1;
+    Environment(int w, int h){
+        W=w; H=h;
+        grid.assign(H, vector<int>(W, 0));
     }
 
-    bool is_colliding(double x, double y) {
-        int ix = (int)x;
-        int iy = (int)y;
-        if(ix < 0 || iy < 0 || ix >= side || iy >= side) return true;
-        if(grid[ix][iy] == 1) return true;
-        return false;
+    void addObstacle(int x, int y){
+        if(x>=0 && x<W && y>=0 && y<H)
+            grid[y][x] = 1;
+    }
+
+    bool freeCell(int x, int y) const {
+        if(x<0 || y<0 || x>=W || y>=H) return false;
+        return (grid[y][x] == 0);
     }
 };
 
-// ----------------- Hybrid A* -----------------
-struct Node {
-    State s;
-    double cost;
-    bool operator>(const Node& other) const { return cost > other.cost; }
+// ========================= Car Class ============================
+class Car {
+public:
+    double L;        // length
+    double step;     // forward step
+
+    Car(double length=2.0, double step_size=1.0){
+        L=length;
+        step=step_size;
+    }
+
+    // Bicycle model motion
+    State move(const State& s, float steeringDeg) const {
+        float thetaRad = deg2rad(s.theta);
+        float steerRad = deg2rad(steeringDeg);
+
+        float nx = s.x + step * cos(thetaRad);
+        float ny = s.y + step * sin(thetaRad);
+        float ntheta = thetaRad + (step / L) * tan(steerRad);
+
+        return State((int)round(nx), (int)round(ny), normalizeDeg(rad2deg(ntheta)));
+    }
 };
 
-class Astar {
+// ========================= A* Class ============================
+class AStar {
 public:
     Environment env;
-    AckermanSteering car;
-    State start, goal;
-    double dt;
-    double goal_threshold;
+    Car car;
 
-    std::map<std::pair<int,int>, State> parent;
-    std::map<std::pair<int,int>, double> g;
+    AStar(Environment e, Car c) : env(e), car(c) {}
 
-    Astar(State start_, State goal_, double dt_ = 0.05)
-        : start(start_), goal(goal_), dt(dt_) {
-        goal_threshold = 4.0;
+    double heuristic(const State& a, const State& b){
+        return fabs(a.x - b.x) + fabs(a.y - b.y);
     }
 
-    double distance(const State& a, const State& b) {
-        return hypot(a.x - b.x, a.y - b.y);
-    }
+    bool search(State start, State goal, vector<State>& path){
+        unordered_map<State, double, StateHash> gScore;
+        unordered_map<State, State, StateHash> parent;
+        unordered_map<State, bool, StateHash> closed;
 
-    double heuristic(const State& s) {
-        return distance(s, goal);
-    }
+        struct Node {
+            State s; double f;
+            bool operator>(Node const& o) const { return f > o.f; }
+        };
 
-    bool is_goal(const State& s) {
-        return distance(s, goal) < goal_threshold;
-    }
+        priority_queue<Node, vector<Node>, greater<Node>> open;
 
-    std::vector<std::pair<State, Motion>> get_valid_neigh(const State& current) {
-        std::vector<std::pair<State, Motion>> valid;
-        for(auto& m : car.motions) {
-            State next = car.next_state(current, m, dt);
-            if(!env.is_colliding(next.x, next.y))
-                valid.push_back({next, m});
-        }
-        return valid;
-    }
+        gScore[start] = 0;
+        open.push({start, heuristic(start, goal)});
 
-    std::vector<State> search() {
-        auto cmp = [](Node left, Node right){ return left.cost > right.cost; };
-        std::priority_queue<Node, std::vector<Node>, decltype(cmp)> OPEN(cmp);
+        vector<float> steeringOptions = {-30.0, 0.0, 30.0};
 
-        OPEN.push({start, heuristic(start)});
-        g[{(int)start.x,(int)start.y}] = 0;
+        while(!open.empty()){
+            Node cur = open.top(); open.pop();
+            State cs = cur.s;
 
-        while(!OPEN.empty()) {
-            Node current = OPEN.top(); OPEN.pop();
-            if(is_goal(current.s)) break;
+            if(closed[cs]) continue;
+            closed[cs] = true;
 
-            for(auto& [next, motion] : get_valid_neigh(current.s)) {
-                auto key = std::make_pair((int)next.x,(int)next.y);
-                double new_cost = g[{(int)current.s.x,(int)current.s.y}] + distance(current.s,next);
-                if(g.find(key) == g.end() || new_cost < g[key]) {
-                    g[key] = new_cost;
-                    parent[key] = current.s;
-                    double f = new_cost + heuristic(next);
-                    OPEN.push({next, f});
+            // Goal Check
+            if(heuristic(cs, goal) < 1.0){
+                reconstruct_path(parent, cs, start, path);
+                return true;
+            }
+
+            // Expand
+            for(float sd : steeringOptions){
+                State ns = car.move(cs, sd);
+
+                if(!env.freeCell(ns.x, ns.y)) continue;
+
+                double newCost = gScore[cs] + car.step;
+
+                if(!gScore.count(ns) || newCost < gScore[ns]){
+                    gScore[ns] = newCost;
+                    parent[ns] = cs;
+                    double f = newCost + heuristic(ns, goal);
+                    open.push({ns, f});
                 }
             }
         }
+        return false;
+    }
 
-        // استخراج المسار
-        std::vector<State> path;
-        State s = goal;
-        while(distance(s, start) > 0.001) {
-            path.push_back(s);
-            auto it = parent.find({(int)s.x,(int)s.y});
-            if(it == parent.end()) break; // إذا لم يوجد
-            s = it->second;
+    void reconstruct_path(
+        unordered_map<State,State,StateHash>& parent,
+        State goal, State start,
+        vector<State>& path)
+    {
+        State cur = goal;
+        while(!(cur == start)){
+            path.push_back(cur);
+            cur = parent[cur];
         }
         path.push_back(start);
-        std::reverse(path.begin(), path.end());
-        return path;
+        reverse(path.begin(), path.end());
     }
 };
 
-// ----------------- Main -----------------
-int main() {
-    State start{10,10,0};
-    State goal{80,90,0};
+// ========================= MAIN ============================
+int main(){
+    Environment env(30, 30);
 
-    Astar planner(start, goal);
-    std::vector<State> path = planner.search();
+    // مثال عوائق
+    env.addObstacle(10,10);
+    env.addObstacle(11,10);
 
-    std::cout << "Path found:\n";
-    for(auto& s : path)
-        std::cout << "(" << s.x << "," << s.y << ") -> ";
-    std::cout << "Goal\n";
+    Car car(2.0, 1.0);
+
+    State start(2, 2, 0);
+    State goal(20, 20, 0);
+
+    AStar astar(env, car);
+
+    vector<State> path;
+    if(astar.search(start, goal, path)){
+        cout << "✔ مسار مُكتشف:\n";
+        for(auto&s : path){
+            cout << "(" << s.x << ", " << s.y << ", θ=" << s.theta << "°)\n";
+        }
+        cout << "\nعدد النقاط = " << path.size() << "\n";
+    } else {
+        cout << "❌ لا يوجد مسار\n";
+    }
 
     return 0;
 }
