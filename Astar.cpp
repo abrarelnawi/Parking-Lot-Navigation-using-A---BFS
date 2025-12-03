@@ -98,8 +98,11 @@ public:
 
     bool search(State start, State goal, vector<State>& path,
                 bool &isAdmissible, bool &isConsistent,
-                string &admReason, string &conReason)
+                string &admReason, string &conReason,
+                double &execTimeMs)
     {
+        auto t0 = chrono::high_resolution_clock::now();
+
         isAdmissible = true;
         isConsistent = true;
         admReason.clear();
@@ -177,6 +180,9 @@ public:
         }
 
         if(!found){
+            auto t1 = chrono::high_resolution_clock::now();
+            execTimeMs = chrono::duration<double, milli>(t1 - t0).count();
+
             admReason = "لم يتم العثور على مسار، لذلك لم يمكن تحليل الـ admissibility على مسار حل.";
             conReason = (isConsistent ? 
                          "لم يتم العثور على خرق للـ consistency أثناء التوسيع." :
@@ -241,6 +247,9 @@ public:
             admReason = "لم يتم رصد حالة يكون فيها h(s) > C_found - g(s)، لذلك لم يظهر خرق للـ admissibility على الحالات المزارة (لكن هذا لا يُعد إثباتًا رياضيًا كاملاً).";
         }
 
+        auto t1 = chrono::high_resolution_clock::now();
+        execTimeMs = chrono::duration<double, milli>(t1 - t0).count();
+
         // إعادة بناء المسار من goalReached إلى start
         reconstruct_path(parent, goalReached, start, path);
         return true;
@@ -279,13 +288,15 @@ int main(){
     vector<State> path;
     bool admissible, consistent;
     string admReason, conReason;
+    double execMs;
 
-    if(astar.search(start, goal, path, admissible, consistent, admReason, conReason)){
-        cout << " مسار مُكتشف:\n";
+    if(astar.search(start, goal, path, admissible, consistent, admReason, conReason, execMs)){
+        cout << "مسار مُكتشف:\n";
         for(auto&s : path){
             cout << "(" << s.x << ", " << s.y << ", θ=" << s.theta << "°)\n";
         }
-        cout << "\nعدد النقاط في المسار = " << path.size() << "\n\n";
+        cout << "\nعدد النقاط في المسار = " << path.size() << "\n";
+        cout << "زمن التنفيذ = " << execMs << " ms\n\n";
 
         cout << "=== تحليل الـ Heuristic ===\n";
         cout << "Consistent ? " << (consistent ? "YES" : "NO") << "\n";
@@ -294,7 +305,7 @@ int main(){
         cout << "Admissible? " << (admissible ? "YES" : "NO") << "\n";
         cout << admReason << "\n";
     } else {
-        cout << "  لا يوجد مسار\n";
+        cout << "لا يوجد مسار\n";
         cout << "لم يتمكن البرنامج من اختبار الـ heuristic بدقة لأن A* لم يجد حلًا.\n";
     }
 
