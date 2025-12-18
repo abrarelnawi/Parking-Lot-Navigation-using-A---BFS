@@ -167,6 +167,16 @@ int main(){
 
     State start(2,2,0);
     State goal(20,20,0);
+    // State start(2, 2, 0);
+    // State goal(20, 20, 0);
+    //State start(5, 5, 90);
+    // State goal(25, 25, 350);
+    // State start(8, 8, 45);
+    // State goal(10, 9, 11);
+    // State start(0, 0, 1);
+    //  State goal(2, 0, 0);
+
+    
 
     BFS bfs(env, car);
 
